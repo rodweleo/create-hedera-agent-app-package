@@ -7,19 +7,24 @@ import chalk from "chalk";
 import { execSync } from "child_process";
 
 const SERVICE_OPTIONS = [
+   {
+    title: "HAM - Hedera Account Service",
+    value: "Ham",
+    description: "For creating and managing accounts on Hedera",
+  },
   {
     title: "HTS - Hedera Token Service",
-    value: "hts",
+    value: "Hts",
     description: "For creating and managing tokens on Hedera",
   },
   {
     title: "HSCS - Hedera Smart Contract Service",
-    value: "hscs",
+    value: "Hscs",
     description: "For deploying and interacting with smart contracts",
   },
   {
     title: "HCS - Hedera Consensus Service",
-    value: "hcs",
+    value: "Hcs",
     description: "For message ordering using the Hedera consensus mechanism",
   },
 ];
@@ -46,7 +51,7 @@ const run = async () => {
 
   const targetDir = path.join(process.cwd(), appName);
   if (fs.existsSync(targetDir)) {
-    console.error(chalk.red("❌ Directory already exists."));
+    console.error(chalk.red("Directory already exists."));
     process.exit(1);
   }
 
