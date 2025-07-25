@@ -4,7 +4,7 @@
   "main": "index.js",
   "type": "commonjs",
   "bin": {
-    "create-my-starter": "dist/index.js"
+    "create-hedera-agent": "dist/index.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
