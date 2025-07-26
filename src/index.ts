@@ -4,25 +4,29 @@ import fs from "fs-extra";
 import path from "path";
 import prompts from "prompts";
 import chalk from "chalk";
-import { execSync } from "child_process";
+import { simpleGit } from "simple-git";
+import os from "os";
 
 const SERVICE_OPTIONS = [
   {
     title: "HTS - Hedera Token Service",
-    value: "hts",
+    value: "Hts",
     description: "For creating and managing tokens on Hedera",
   },
   {
     title: "HSCS - Hedera Smart Contract Service",
-    value: "hscs",
+    value: "Hscs",
     description: "For deploying and interacting with smart contracts",
   },
   {
     title: "HCS - Hedera Consensus Service",
-    value: "hcs",
+    value: "Hcs",
     description: "For message ordering using the Hedera consensus mechanism",
   },
 ];
+
+const REPO_URL = "https://github.com/rodweleo/hedera-tools.git";
+const SPARSE_FOLDER = "src/langchain/tools";
 
 const run = async () => {
   const response = await prompts([
@@ -35,65 +39,122 @@ const run = async () => {
     {
       type: "multiselect",
       name: "services",
-      message: "Select the Hedera services to include in your dapp:",
+      message: "Select the Hedera services to include:",
       choices: SERVICE_OPTIONS,
       min: 1,
-      hint: "- SPACE to select. ENTER to submit",
+    },
+    {
+      type: "confirm",
+      name: "value",
+      message: "Create an Hedera Testnet account for the DApp ?",
+      initial: true,
     },
   ]);
 
   const { appName, services } = response;
-
   const targetDir = path.join(process.cwd(), appName);
+
   if (fs.existsSync(targetDir)) {
-    console.error(chalk.red("❌ Directory already exists."));
+    console.error(chalk.red("Error: Directory already exists."));
     process.exit(1);
   }
 
-  // Create project folder and copy base files
   fs.mkdirSync(targetDir);
-  fs.writeFileSync(
-    path.join(targetDir, "README.md"),
-    `# ${appName}\n\nGenerated with selected Hedera services: ${services.join(
-      ", "
-    )}`
-  );
 
-  // Optional: Create folders or configs based on selected services
-  services.forEach((service: string) => {
-    const servicePath = path.join(targetDir, service.toUpperCase());
-    fs.mkdirSync(servicePath);
-    fs.writeFileSync(
-      path.join(servicePath, "README.md"),
-      `# ${service.toUpperCase()} Module`
+  const tmpDir = path.join(os.tmpdir(), `hedera-tools-${Date.now()}`);
+  const git = simpleGit();
+
+  console.log(chalk.blue("Adding selected tools..."));
+
+  await git.clone(REPO_URL, tmpDir, [
+    "--depth=1",
+    "--filter=blob:none",
+    "--sparse",
+  ]);
+
+  const repoGit = simpleGit(tmpDir);
+  await repoGit.raw(["sparse-checkout", "init", "--cone"]);
+  await repoGit.raw(["sparse-checkout", "set", SPARSE_FOLDER]);
+
+  // Now copy only folders that match the selected service names
+  for (const service of services) {
+    const sourceFolder = path.join(tmpDir, SPARSE_FOLDER, service);
+    const serviceDestinationFolder = path.join(
+      `${targetDir}/src/hedera/langchain/tools`,
+      service
     );
-  });
 
-  const envContent = `
-    # Hedera Account Info
-    HEDERA_ACCOUNT_ID=your-account-id
-    HEDERA_PRIVATE_KEY=your-private-key
-    HEDERA_NETWORK=testnet
+    if (fs.existsSync(sourceFolder)) {
+      fs.copySync(sourceFolder, serviceDestinationFolder);
+      console.log(
+        chalk.green(`SUCCESS: Added ${service.toUpperCase()} tools.`)
+      );
+    } else {
+      console.warn(chalk.yellow(`WARN: Folder for ${service} not found.`));
+    }
 
-    # Langchain/OpenAI
-    GOOGLE_API=your-api-key
+    fs.ensureFile(`${targetDir}/src/hedera/langchain/tools/index.ts`);
+
+    const indexDestinationFolderPath = path.join(
+      `${targetDir}/src/hedera/langchain/tools`,
+      "index.ts"
+    );
+
+    const exportStatement = `export * from './${service}'`;
+    await fs.appendFile(indexDestinationFolderPath, `${exportStatement}\n`);
+
+    //working on the index file in the langchain root folder
+    fs.ensureFile(`${targetDir}/src/hedera/langchain/index.ts`);
+
+    const langchainIndexFilePath = path.join(
+      `${targetDir}/src/hedera/langchain`,
+      "index.ts"
+    );
+
+    const finalToolImports = services
+      .map((s: string) => {
+        return `createHedera${s}Tools`;
+      })
+      .join(", ");
+
+    const finalToolCreation = services
+      .map((s: string) => {
+        return `...createHedera${s}Tools(hederaKit)`;
+      })
+      .join(", ");
+
+    const langchainIndexFileContent = `
+      import { Tool } from "@langchain/core/tools";
+      import HederaAgentKit from "../agent";
+      import * as dotenv from "dotenv";
+      import { ${finalToolImports} } from "./tools"
+
+      dotenv.config();
+
+      export function createHederaTools(hederaKit: HederaAgentKit): Tool[] {
+        return [${finalToolCreation}];
+      }
     `;
 
-  fs.writeFileSync(`${targetDir}/.env`, envContent.trim());
+    await fs.writeFile(langchainIndexFilePath, langchainIndexFileContent);
+  }
+
+  fs.removeSync(tmpDir);
+  console.log(chalk.gray("SUCCESS: Cleaned up temporary files"));
+
+  const env = `
+HEDERA_ACCOUNT_ID=your-account-id
+HEDERA_PRIVATE_KEY=your-private-key
+HEDERA_NETWORK=testnet
+GOOGLE_API=your-google-api-key
+  `.trim();
+
+  fs.writeFileSync(path.join(targetDir, ".env"), env);
 
   console.log(
-    chalk.green(
-      `✅ Project "${appName}" created with: ${services
-        .join(", ")
-        .toUpperCase()}`
-    )
+    chalk.green(`\n"${appName}" created with services: ${services.join(", ")}`)
   );
-
-  // Optional: Initialize NPM
-  console.log(chalk.yellow("📦 Initializing npm project..."));
-  execSync("npm init -y", { cwd: targetDir, stdio: "inherit" });
-
-  console.log(chalk.green("🎉 Done! Your Hedera AI agent dapp is ready."));
+  console.log(chalk.blue(`\ncd ${appName} && start building your dApp!`));
 };
 
 run();
