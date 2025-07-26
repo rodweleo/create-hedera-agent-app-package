@@ -14,11 +14,6 @@ const SERVICE_OPTIONS = [
     description: "For creating and managing tokens on Hedera",
   },
   {
-    title: "HSCS - Hedera Smart Contract Service",
-    value: "Hscs",
-    description: "For deploying and interacting with smart contracts",
-  },
-  {
     title: "HCS - Hedera Consensus Service",
     value: "Hcs",
     description: "For message ordering using the Hedera consensus mechanism",
