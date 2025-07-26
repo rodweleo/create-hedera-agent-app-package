@@ -6,6 +6,7 @@ import prompts from "prompts";
 import chalk from "chalk";
 import { simpleGit } from "simple-git";
 import os from "os";
+import { createHederaTestnetAccount, hederaClient } from "./hedera";
 
 const SERVICE_OPTIONS = [
   {
@@ -40,13 +41,13 @@ const run = async () => {
     },
     {
       type: "confirm",
-      name: "value",
+      name: "createTestnetAccount",
       message: "Create an Hedera Testnet account for the DApp ?",
       initial: true,
     },
   ]);
 
-  const { appName, services } = response;
+  const { appName, services, createTestnetAccount } = response;
   const targetDir = path.join(process.cwd(), appName);
 
   if (fs.existsSync(targetDir)) {
@@ -137,9 +138,34 @@ const run = async () => {
   fs.removeSync(tmpDir);
   console.log(chalk.gray("SUCCESS: Cleaned up temporary files"));
 
+  setTimeout(() => {}, 2000);
+
+  let createHederaTestnetAccountReceipt;
+
+  if (createTestnetAccount) {
+    console.log("---Creating Hedera testnet account...---");
+    createHederaTestnetAccountReceipt = await createHederaTestnetAccount(
+      hederaClient
+    );
+
+    if (createHederaTestnetAccountReceipt) {
+      console.log(
+        chalk.green("SUCCESS: Hedera account created successfully! \n\n\n")
+      );
+
+      console.log(
+        chalk.green(`
+        ------------ HEDERA ACCOUNT DETAILS ------------
+        Account ID : ${createHederaTestnetAccountReceipt.accountId} \n
+        Private Key: ${createHederaTestnetAccountReceipt.privateKey.toString()}
+        `)
+      );
+    }
+  }
+
   const env = `
-HEDERA_ACCOUNT_ID=your-account-id
-HEDERA_PRIVATE_KEY=your-private-key
+HEDERA_ACCOUNT_ID = '${createHederaTestnetAccountReceipt?.accountId}'
+HEDERA_PRIVATE_KEY = '${createHederaTestnetAccountReceipt?.privateKey}'
 HEDERA_NETWORK=testnet
 GOOGLE_API=your-google-api-key
   `.trim();
