@@ -4,35 +4,37 @@ import {
   Client,
   Hbar,
   PrivateKey,
+  PublicKey,
   TransactionReceipt,
 } from "@hashgraph/sdk";
 import dotenv from "dotenv";
 dotenv.config();
 
-const MY_ACCOUNT_ID = AccountId.fromString(process.env.MY_ACCOUNT_ID!);
-const MY_PRIVATE_KEY = PrivateKey.fromStringED25519(
+export const hederaClient = Client.forTestnet();
+hederaClient.setOperator(
+  process.env.MY_ACCOUNT_ID!,
   process.env.MY_PRIVATE_KEY!
 );
-
-export const hederaClient = Client.forTestnet();
-hederaClient.setOperator(MY_ACCOUNT_ID, MY_PRIVATE_KEY);
+hederaClient.setDefaultMaxTransactionFee(new Hbar(100));
+hederaClient.setDefaultMaxQueryPayment(new Hbar(50));
 
 interface AccountCreationResult {
   accountId: AccountId | null;
   privateKey: PrivateKey;
   status: any;
+  publicKey: PublicKey;
 }
 
 export const createHederaTestnetAccount = async (
   hederaClient: Client
 ): Promise<AccountCreationResult | null> => {
   try {
-    const ed25519PrivateKey = PrivateKey.generateED25519();
-    const ed25519PublicKey = ed25519PrivateKey.publicKey;
+    const newAccountPrivateKey = PrivateKey.generateED25519();
+    const newAccountPublicKey = newAccountPrivateKey.publicKey;
 
     const transaction = new AccountCreateTransaction()
-      .setKeyWithoutAlias(ed25519PublicKey)
-      .setInitialBalance(new Hbar(1000));
+      .setKeyWithoutAlias(newAccountPublicKey)
+      .setInitialBalance(new Hbar(50));
 
     //Sign the transaction with the client operator private key and submit to a Hedera network
     const txResponse = await transaction.execute(hederaClient);
@@ -43,12 +45,13 @@ export const createHederaTestnetAccount = async (
     //Get the account ID
     const newAccountId = receipt.accountId;
 
-    console.log("The new account ID is " + newAccountId);
+    console.log("The new Hedera account ID is " + newAccountId);
 
     return {
       accountId: receipt.accountId,
-      privateKey: ed25519PrivateKey,
+      privateKey: newAccountPrivateKey,
       status: receipt.status,
+      publicKey: newAccountPublicKey,
     };
   } catch (e: any) {
     console.log(`Failed to create Hedera wallet: ${e.message}`);

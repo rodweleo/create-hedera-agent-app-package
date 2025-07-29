@@ -72,100 +72,107 @@ const run = async () => {
   await repoGit.raw(["sparse-checkout", "init", "--cone"]);
   await repoGit.raw(["sparse-checkout", "set", SPARSE_FOLDER]);
 
-  // Now copy only folders that match the selected service names
-  for (const service of services) {
-    const sourceFolder = path.join(tmpDir, SPARSE_FOLDER, service);
-    const serviceDestinationFolder = path.join(
-      `${targetDir}/src/hedera/langchain/tools`,
-      service
-    );
+  // Prepare the tools index file path
+  const indexDestinationFolderPath = path.join(
+    `${targetDir}/src/hedera/langchain/tools`,
+    "index.ts"
+  );
+  // Ensure the directory exists
+  await fs.ensureDir(path.dirname(indexDestinationFolderPath));
 
-    if (fs.existsSync(sourceFolder)) {
-      fs.copySync(sourceFolder, serviceDestinationFolder);
-      console.log(
-        chalk.green(`SUCCESS: Added ${service.toUpperCase()} tools.`)
+  // Prepare export statements and copy folders in parallel
+  const exportStatements: string[] = [];
+  await Promise.all(
+    services.map(async (service: string) => {
+      const sourceFolder = path.join(tmpDir, SPARSE_FOLDER, service);
+      const serviceDestinationFolder = path.join(
+        `${targetDir}/src/hedera/langchain/tools`,
+        service.toLowerCase()
       );
-    } else {
-      console.warn(chalk.yellow(`WARN: Folder for ${service} not found.`));
-    }
-
-    fs.ensureFile(`${targetDir}/src/hedera/langchain/tools/index.ts`);
-
-    const indexDestinationFolderPath = path.join(
-      `${targetDir}/src/hedera/langchain/tools`,
-      "index.ts"
-    );
-
-    const exportStatement = `export * from './${service}'`;
-    await fs.appendFile(indexDestinationFolderPath, `${exportStatement}\n`);
-
-    //working on the index file in the langchain root folder
-    fs.ensureFile(`${targetDir}/src/hedera/langchain/index.ts`);
-
-    const langchainIndexFilePath = path.join(
-      `${targetDir}/src/hedera/langchain`,
-      "index.ts"
-    );
-
-    const finalToolImports = services
-      .map((s: string) => {
-        return `createHedera${s}Tools`;
-      })
-      .join(", ");
-
-    const finalToolCreation = services
-      .map((s: string) => {
-        return `...createHedera${s}Tools(hederaKit)`;
-      })
-      .join(", ");
-
-    const langchainIndexFileContent = `
-      import { Tool } from "@langchain/core/tools";
-      import HederaAgentKit from "../agent";
-      import * as dotenv from "dotenv";
-      import { ${finalToolImports} } from "./tools"
-
-      dotenv.config();
-
-      export function createHederaTools(hederaKit: HederaAgentKit): Tool[] {
-        return [${finalToolCreation}];
+      if (await fs.pathExists(sourceFolder)) {
+        await fs.copy(sourceFolder, serviceDestinationFolder);
+        console.log(
+          chalk.green(`SUCCESS: Added ${service.toUpperCase()} tools.`)
+        );
+        exportStatements.push(`export * from './${service.toLowerCase()}'`);
+      } else {
+        console.warn(chalk.yellow(`WARN: Folder for ${service} not found.`));
       }
-    `;
+    })
+  );
 
-    await fs.writeFile(langchainIndexFilePath, langchainIndexFileContent);
-  }
+  // Write all export statements at once
+  await fs.writeFile(
+    indexDestinationFolderPath,
+    exportStatements.join("\n") + "\n"
+  );
 
-  fs.removeSync(tmpDir);
+  // After the loop, generate the langchain index file ONCE
+  await fs.ensureFile(`${targetDir}/src/hedera/langchain/index.ts`);
+  const langchainIndexFilePath = path.join(
+    `${targetDir}/src/hedera/langchain`,
+    "index.ts"
+  );
+  const finalToolImports = services
+    .map((s: string) => `createHedera${s}Tools`)
+    .join(", ");
+  const finalToolCreation = services
+    .map((s: string) => `...createHedera${s}Tools(hederaKit)`)
+    .join(", ");
+  const langchainIndexFileContent = `
+    import { Tool } from "@langchain/core/tools";
+    import HederaAgentKit from "../agent";
+    import * as dotenv from "dotenv";
+    import { ${finalToolImports} } from "./tools"
+
+    dotenv.config();
+
+    export function createHederaTools(hederaKit: HederaAgentKit): Tool[] {
+      return [${finalToolCreation}];
+    }
+  `;
+  await fs.writeFile(langchainIndexFilePath, langchainIndexFileContent);
+
+  // Clean up temporary directory asynchronously
+  await fs.remove(tmpDir);
   console.log(chalk.gray("SUCCESS: Cleaned up temporary files"));
-
-  setTimeout(() => {}, 2000);
 
   let createHederaTestnetAccountReceipt;
 
   if (createTestnetAccount) {
-    console.log("---Creating Hedera testnet account...---");
+    console.log("--- Creating Hedera testnet account ---");
     createHederaTestnetAccountReceipt = await createHederaTestnetAccount(
       hederaClient
     );
 
     if (createHederaTestnetAccountReceipt) {
       console.log(
-        chalk.green("SUCCESS: Hedera account created successfully! \n\n\n")
+        chalk.green("SUCCESS: Hedera account created successfully! \n")
       );
 
       console.log(
         chalk.green(`
         ------------ HEDERA ACCOUNT DETAILS ------------
+        Account Creation Status: ${createHederaTestnetAccountReceipt.status} \n
         Account ID : ${createHederaTestnetAccountReceipt.accountId} \n
-        Private Key: ${createHederaTestnetAccountReceipt.privateKey.toString()}
+        Private Key: ${createHederaTestnetAccountReceipt.privateKey.toString()} \n
+        Public Key: ${createHederaTestnetAccountReceipt.publicKey}
         `)
       );
     }
   }
 
   const env = `
-HEDERA_ACCOUNT_ID = '${createHederaTestnetAccountReceipt?.accountId}'
-HEDERA_PRIVATE_KEY = '${createHederaTestnetAccountReceipt?.privateKey}'
+HEDERA_ACCOUNT_ID = '${
+    createHederaTestnetAccountReceipt
+      ? createHederaTestnetAccountReceipt.accountId
+      : ""
+  }'
+HEDERA_PRIVATE_KEY = '${
+    createHederaTestnetAccountReceipt
+      ? createHederaTestnetAccountReceipt.privateKey
+      : ""
+  }'
 HEDERA_NETWORK=testnet
 GOOGLE_API=your-google-api-key
   `.trim();
@@ -173,9 +180,22 @@ GOOGLE_API=your-google-api-key
   fs.writeFileSync(path.join(targetDir, ".env"), env);
 
   console.log(
-    chalk.green(`\n"${appName}" created with services: ${services.join(", ")}`)
+    chalk.green(
+      `\nProject "${appName}" created with services: ${services.join(", ")}`
+    )
   );
-  console.log(chalk.blue(`\ncd ${appName} && start building your dApp!`));
+  console.log(
+    chalk.blue(`\n
+    Now, let's set up the application and run it: 
+    1. cd ${appName}
+    2. run 'npm install' to install all the dependencies
+    3. run 'npm run dev' to start the application in DEV mode
+    `)
+  );
+  process.exit(0);
 };
 
-run();
+run().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
