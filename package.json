@@ -1,7 +1,7 @@
 {
   "name": "create-hedera-agent-app",
   "version": "1.0.1",
-  "description": "A CLI to bootstrap Hedera agent dApps with selected Hedera services.",
+  "description": "A command-line tool to scaffold conversational **Hedera agent dApps** using `Next.js`, `LangChain`, and selected **Hedera services** such as HTS, HCS, and more.",
   "main": "dist/index.js",
   "type": "commonjs",
   "bin": {
@@ -22,9 +22,10 @@
     "Hedera",
     "Blockchain",
     "Artificial Intelligence",
-    "Tokenication",
+    "Google Gemin",
+    "Tokenization",
     "HBAR",
-    "Smart contract"
+    "Smart contracts"
   ],
   "author": "Rodwell Leo - leorodwel86@gmail.com",
   "license": "ISC",
