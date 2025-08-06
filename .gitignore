@@ -1,3 +1,6 @@
 /node_modules
 
 .env
+
+dist
+create-hedera-agent-app-1.0.0.tgz

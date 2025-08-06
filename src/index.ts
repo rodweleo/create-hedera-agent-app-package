@@ -6,7 +6,8 @@ import prompts from "prompts";
 import chalk from "chalk";
 import { simpleGit } from "simple-git";
 import os from "os";
-import { createHederaTestnetAccount, hederaClient } from "./hedera";
+import { createHederaTestnetAccount } from "./hedera";
+import cliProgress from "cli-progress";
 
 const SERVICE_OPTIONS = [
   {
@@ -21,7 +22,15 @@ const SERVICE_OPTIONS = [
   },
 ];
 
-const REPO_URL = "https://github.com/rodweleo/hedera-tools.git";
+// BASE APP GITHUB DEFINITION
+const BASE_APP_REPO_URL =
+  "https://github.com/rodweleo/create-hedera-agent-starter-app.git";
+const baseAppTmpDir = path.join(
+  os.tmpdir(),
+  `base-app-cloned-repo-${Date.now()}`
+);
+
+const HEDERA_TOOLS_REPO_URL = "https://github.com/rodweleo/hedera-tools.git";
 const SPARSE_FOLDER = "src/langchain/tools";
 
 const run = async () => {
@@ -43,12 +52,24 @@ const run = async () => {
       type: "confirm",
       name: "createTestnetAccount",
       message: "Create an Hedera Testnet account for the DApp ?",
-      initial: true,
+      initial: false,
     },
   ]);
 
   const { appName, services, createTestnetAccount } = response;
   const targetDir = path.join(process.cwd(), appName);
+  const git = simpleGit();
+
+  console.log(`Creating base application (${appName})...`);
+  const baseCloneBar = new cliProgress.SingleBar(
+    { format: "Generating Base App | {bar} | {percentage}% " },
+    cliProgress.Presets.shades_classic
+  );
+  baseCloneBar.start(1, 0);
+  await git.clone(BASE_APP_REPO_URL, baseAppTmpDir, ["--depth=1"]);
+  baseCloneBar.update(1);
+  baseCloneBar.stop();
+  console.log(`Base application (${appName}) created!`);
 
   if (fs.existsSync(targetDir)) {
     console.error(chalk.red("Error: Directory already exists."));
@@ -56,35 +77,62 @@ const run = async () => {
   }
 
   fs.mkdirSync(targetDir);
+  const copyBar = new cliProgress.SingleBar(
+    { format: "Loading base app files | {bar} | {percentage}%" },
+    cliProgress.Presets.shades_classic
+  );
+  copyBar.start(1, 0);
+  await fs.copy(baseAppTmpDir, targetDir);
+  copyBar.update(1);
+  copyBar.stop();
 
-  const tmpDir = path.join(os.tmpdir(), `hedera-tools-${Date.now()}`);
-  const git = simpleGit();
+  const hederaToolsTmpDir = path.join(
+    os.tmpdir(),
+    `hedera-tools-${Date.now()}`
+  );
 
-  console.log(chalk.blue("Adding selected tools..."));
+  console.log(chalk.blue(`Adding Hedera services...`));
 
-  await git.clone(REPO_URL, tmpDir, [
+  const toolsCloneBar = new cliProgress.SingleBar(
+    { format: "Loading Hedera services | {bar} | {percentage}% " },
+    cliProgress.Presets.shades_classic
+  );
+  toolsCloneBar.start(1, 0);
+  await git.clone(HEDERA_TOOLS_REPO_URL, hederaToolsTmpDir, [
     "--depth=1",
     "--filter=blob:none",
     "--sparse",
   ]);
+  toolsCloneBar.update(1);
+  toolsCloneBar.stop();
 
-  const repoGit = simpleGit(tmpDir);
-  await repoGit.raw(["sparse-checkout", "init", "--cone"]);
-  await repoGit.raw(["sparse-checkout", "set", SPARSE_FOLDER]);
+  const hederaToolsRepoGit = simpleGit(hederaToolsTmpDir);
+  await hederaToolsRepoGit.raw(["sparse-checkout", "init", "--cone"]);
+  await hederaToolsRepoGit.raw(["sparse-checkout", "set", SPARSE_FOLDER]);
 
-  // Prepare the tools index file path
+  // The tools index file path
   const indexDestinationFolderPath = path.join(
     `${targetDir}/src/hedera/langchain/tools`,
     "index.ts"
   );
-  // Ensure the directory exists
+
   await fs.ensureDir(path.dirname(indexDestinationFolderPath));
 
-  // Prepare export statements and copy folders in parallel
   const exportStatements: string[] = [];
+  const serviceProgress = new cliProgress.SingleBar(
+    {
+      format:
+        "Loading Hedera services | {bar} | {percentage}% || {value}/{total} services",
+      barCompleteChar: "\u2588",
+      barIncompleteChar: "\u2591",
+      hideCursor: true,
+    },
+    cliProgress.Presets.shades_classic
+  );
+  serviceProgress.start(services.length, 0);
   await Promise.all(
     services.map(async (service: string) => {
-      const sourceFolder = path.join(tmpDir, SPARSE_FOLDER, service);
+      const sourceFolder = path.join(hederaToolsTmpDir, SPARSE_FOLDER, service);
       const serviceDestinationFolder = path.join(
         `${targetDir}/src/hedera/langchain/tools`,
         service.toLowerCase()
@@ -92,22 +140,26 @@ const run = async () => {
       if (await fs.pathExists(sourceFolder)) {
         await fs.copy(sourceFolder, serviceDestinationFolder);
         console.log(
-          chalk.green(`SUCCESS: Added ${service.toUpperCase()} tools.`)
+          chalk.green(`\nSUCCESS: Added ${service.toUpperCase()} services.`)
         );
         exportStatements.push(`export * from './${service.toLowerCase()}'`);
       } else {
-        console.warn(chalk.yellow(`WARN: Folder for ${service} not found.`));
+        console.warn(
+          chalk.yellow(`WARN: Folder for ${service.toUpperCase()} not found.`)
+        );
       }
+
+      serviceProgress.increment();
     })
   );
+  serviceProgress.stop();
 
-  // Write all export statements at once
+  // All export statements written once
   await fs.writeFile(
     indexDestinationFolderPath,
     exportStatements.join("\n") + "\n"
   );
 
-  // After the loop, generate the langchain index file ONCE
   await fs.ensureFile(`${targetDir}/src/hedera/langchain/index.ts`);
   const langchainIndexFilePath = path.join(
     `${targetDir}/src/hedera/langchain`,
@@ -133,17 +185,14 @@ const run = async () => {
   `;
   await fs.writeFile(langchainIndexFilePath, langchainIndexFileContent);
 
-  // Clean up temporary directory asynchronously
-  await fs.remove(tmpDir);
-  console.log(chalk.gray("SUCCESS: Cleaned up temporary files"));
+  // Cleaning up temporary directory
+  await fs.remove(baseAppTmpDir);
 
   let createHederaTestnetAccountReceipt;
 
   if (createTestnetAccount) {
     console.log("--- Creating Hedera testnet account ---");
-    createHederaTestnetAccountReceipt = await createHederaTestnetAccount(
-      hederaClient
-    );
+    createHederaTestnetAccountReceipt = await createHederaTestnetAccount();
 
     if (createHederaTestnetAccountReceipt) {
       console.log(
@@ -155,7 +204,7 @@ const run = async () => {
         ------------ HEDERA ACCOUNT DETAILS ------------
         Account Creation Status: ${createHederaTestnetAccountReceipt.status} \n
         Account ID : ${createHederaTestnetAccountReceipt.accountId} \n
-        Private Key: ${createHederaTestnetAccountReceipt.privateKey.toString()} \n
+        Private Key: ${createHederaTestnetAccountReceipt.privateKey} \n
         Public Key: ${createHederaTestnetAccountReceipt.publicKey}
         `)
       );
@@ -163,31 +212,35 @@ const run = async () => {
   }
 
   const env = `
-HEDERA_ACCOUNT_ID = '${
+NEXT_PUBLIC_HASHCONNECT_PROJECT_ID = ''
+ACCOUNT_ID = '${
     createHederaTestnetAccountReceipt
       ? createHederaTestnetAccountReceipt.accountId
       : ""
   }'
-HEDERA_PRIVATE_KEY = '${
+PRIVATE_KEY = '${
     createHederaTestnetAccountReceipt
       ? createHederaTestnetAccountReceipt.privateKey
       : ""
   }'
-HEDERA_NETWORK=testnet
-GOOGLE_API=your-google-api-key
+HEDERA_NETWORK= 'testnet'
+GOOGLE_API_KEY= 'your-google-api-key'
   `.trim();
 
   fs.writeFileSync(path.join(targetDir, ".env"), env);
 
   console.log(
     chalk.green(
-      `\nProject "${appName}" created with services: ${services.join(", ")}`
+      `\nProject "${appName}" created with Hedera services: ${services.join(
+        ", "
+      )}`
     )
   );
   console.log(
     chalk.blue(`\n
     Now, let's set up the application and run it: 
     1. cd ${appName}
+    2. Set up the environment variables (Hedera Account ID, Hedera Account Private Key, Wallet connet Project ID & Google Gemini API Key).
     2. run 'npm install' to install all the dependencies
     3. run 'npm run dev' to start the application in DEV mode
     `)
