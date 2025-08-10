@@ -67,3 +67,8 @@ https://www.loom.com/share/f638a9ca991b482f8bebf0d558f0ffa0?sid=76d1b79a-6c5f-4f
 
 1. HTS (Hedera Token Service)
 2. HCS (Hedera Consensus Service)
+
+## Future plans
+1. Add more Hedera Service
+     - HSCS (Hedera Smart Contract Service)
+     - HAS (Hedera Account Service)
