@@ -54,6 +54,13 @@ Project "my-agent-dapp" ready!
 
 ```
 
+# Demo
+## Part 1: Installing & bootstrapping an Hedera agent dApp
+https://www.loom.com/share/f638a9ca991b482f8bebf0d558f0ffa0?sid=76d1b79a-6c5f-4f8b-bc53-ba0213f2d5df
+
+## Part 2: Using the prebuilt conversational agent to interact with Hedera
+[https://www.loom.com/share/f638a9ca991b482f8bebf0d558f0ffa0?sid=76d1b79a-6c5f-4f8b-bc53-ba0213f2d5df](https://www.loom.com/share/5f8c211d598346f8a75e335c40010d33?sid=f707575b-de0f-40e5-8dcf-e9ebd6ff5aa9)
+
 ---
 
 ## Supported Services
